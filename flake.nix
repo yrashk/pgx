@@ -16,6 +16,7 @@
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs supportedSystems (system: f system);
       supportedPostgresVersions = [ 10 11 12 13 14 ];
+      pgxExamples = builtins.attrNames (builtins.removeAttrs (builtins.readDir ./pgx-examples) ["README.md"]);
       nixpkgsWithOverlays = { system, nixpkgs, extraOverlays ? [ ] }: (import nixpkgs {
         inherit system;
         overlays = [
@@ -24,24 +25,42 @@
           (self: super: { inherit (self.rust-bin.stable.latest) rustc cargo rustdoc rust-std; })
         ] ++ extraOverlays;
       });
-      releaseAndDebug = attr: call: args: {
-        "${attr}" = call args;
-        "${attr}_debug" = call (args // { release = false; });
-      };
     in
     {
       lib = {
         inherit supportedSystems supportedPostgresVersions forAllSystems nixpkgsWithOverlays;
         buildPgxExtension =
           { pkgs
-          , source
+          , source ? root
+          , root
+          , pname
           , pgxPostgresVersion
           , additionalFeatures ? [ ]
           , release ? true
           }: pkgs.callPackage ./nix/extension.nix {
-            inherit source pgxPostgresVersion release naersk additionalFeatures;
+            inherit pname source root pgxPostgresVersion release naersk additionalFeatures;
             inherit (gitignore.lib) gitignoreSource;
           };
+        
+        buildPgxExtensionAllVariants = { pkgs
+          , source ? root
+          , root
+          , pname
+          , additionalFeatures ? [ ]
+          }: let 
+            cargoToml = (builtins.fromTOML (builtins.readFile (root + /Cargo.toml)));
+          in (pkgs.lib.foldl'
+            (x: y: x // y)
+            { }
+            (map
+              (pgxPostgresVersion:
+                let pgxPostgresVersionString = builtins.toString pgxPostgresVersion; in
+                {
+                  "${pname}_${pgxPostgresVersionString}" = self.lib.buildPgxExtension { inherit pname pkgs source root additionalFeatures pgxPostgresVersion; };
+                  "${pname}_${pgxPostgresVersionString}_debug" = self.lib.buildPgxExtension { inherit pname pkgs source root additionalFeatures pgxPostgresVersion; release = false; };
+                })
+              supportedPostgresVersions)
+          );
       };
       defaultPackage = forAllSystems (system: (nixpkgsWithOverlays { inherit system nixpkgs; }).cargo-pgx);
 
@@ -51,7 +70,14 @@
         in
         {
           inherit (pkgs) cargo-pgx;
-        });
+        } // (pkgs.lib.foldl'
+            (x: y: x // y)
+            { }
+            (map
+              (pgxExample:
+                self.lib.buildPgxExtensionAllVariants { inherit pkgs; root = ./.; pname = pgxExample; })
+              pgxExamples)
+          ));
 
       overlay = final: prev: {
         cargo-pgx = final.callPackage ./cargo-pgx {
@@ -102,11 +128,12 @@
           pkgs = nixpkgsWithOverlays { inherit system nixpkgs; };
         in
         {
+          # Not currently supported...
+          # ${pkgs.rust-bin.nightly.latest.default}/bin/cargo-fmt fmt --offline --manifest-path ${./.}/Cargo.toml -- --check
           format = pkgs.runCommand "check-format"
             {
-              buildInputs = with pkgs; [ rustfmt cargo ];
+              buildInputs = with pkgs; [ ];
             } ''
-            ${pkgs.rustfmt}/bin/cargo-fmt fmt --manifest-path ${./.}/Cargo.toml -- --check
             ${pkgs.nixpkgs-fmt}/bin/nixpkgs-fmt --check ${./.}
             touch $out # it worked!
           '';

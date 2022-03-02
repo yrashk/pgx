@@ -22,8 +22,11 @@
 , pgxPostgresVersion ? 11
 , release ? true
 , source ? ./.
+, root ? source
 , additionalFeatures
 , doCheck ? true
+, pname
+, version
 }:
 
 let
@@ -40,9 +43,8 @@ let
 in
 
 naersk.lib."${targetPlatform.system}".buildPackage rec {
-  inherit release doCheck;
-  name = "${cargoToml.package.name}-pg${pgxPostgresVersionString}";
-  version = cargoToml.package.version;
+  inherit release doCheck root pname version;
+  name = "${pname}-pg${pgxPostgresVersionString}";
 
   src = gitignoreSource source;
 
@@ -56,6 +58,7 @@ naersk.lib."${targetPlatform.system}".buildPackage rec {
     libiconv
     pgxPostgresPkg
     gcc
+    openssl
   ];
   checkInputs = [
     cargo-pgx
@@ -124,7 +127,7 @@ naersk.lib."${targetPlatform.system}".buildPackage rec {
     ${cargo-pgx}/bin/cargo-pgx pgx schema pg${pgxPostgresVersionString} ${maybeReleaseFlag} --features "${builtins.toString additionalFeatures}"
     mkdir -p $out/share/postgresql/extension/
     cp -v ./sql/* $out/share/postgresql/extension/
-    cp -v ./${cargoToml.package.name}.control $out/share/postgresql/extension/${cargoToml.package.name}.control
+    cp -v ./${pname}.control $out/share/postgresql/extension/${pname}.control
   '';
   preFixup = ''
     rm -r $out/.pgx

@@ -309,12 +309,16 @@ impl PgAggregate {
                 found.sig.ident.span(),
             );
             let pg_extern_attr = pg_extern_attr(found);
-
+            let type_finalize = type_finalize.ok_or(syn::Error::new(
+                item_impl.span(),
+                "could not get Finalize type",
+            ))?.ty.clone();
+            let return_type: syn::ReturnType = parse_quote! { -> #type_finalize };
             if direct_args_with_names.len() > 0 {
                 pg_externs.push(parse_quote! {
                     #[allow(non_snake_case, clippy::too_many_arguments)]
                     #pg_extern_attr
-                    fn #fn_name(this: #type_state_without_self, #(#direct_args_with_names),*, fcinfo: pgx::pg_sys::FunctionCallInfo) -> <#target_path as pgx::Aggregate>::Finalize {
+                    fn #fn_name(this: #type_state_without_self, #(#direct_args_with_names),*, fcinfo: pgx::pg_sys::FunctionCallInfo) #return_type {
                         <#target_path as pgx::Aggregate>::in_memory_context(
                             fcinfo,
                             move |_context| <#target_path as pgx::Aggregate>::finalize(this, (#(#direct_arg_names),*), fcinfo)
@@ -325,7 +329,7 @@ impl PgAggregate {
                 pg_externs.push(parse_quote! {
                     #[allow(non_snake_case, clippy::too_many_arguments)]
                     #pg_extern_attr
-                    fn #fn_name(this: #type_state_without_self, fcinfo: pgx::pg_sys::FunctionCallInfo) -> <#target_path as pgx::Aggregate>::Finalize {
+                    fn #fn_name(this: #type_state_without_self, fcinfo: pgx::pg_sys::FunctionCallInfo) #return_type {
                         <#target_path as pgx::Aggregate>::in_memory_context(
                             fcinfo,
                             move |_context| <#target_path as pgx::Aggregate>::finalize(this, (), fcinfo)

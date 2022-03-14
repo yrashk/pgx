@@ -2,6 +2,8 @@ use pgx::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// Demonstrates using serde_json strings for initial conditions, and returning the state type instead of a finalize type.
+/// Also a custom name.
 #[derive(Copy, Clone, Default, Debug, PostgresType, Serialize, Deserialize)]
 pub struct DemoSum {
     count: i32,
@@ -54,6 +56,7 @@ impl Aggregate for DemoSum {
     }
 }
 
+/// Demonstrates using an `Internal` to store a Rust type with no Postgres representation.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct DemoUnique;
 
@@ -97,6 +100,7 @@ impl Aggregate for DemoUnique {
     }
 }
 
+/// Demonstrates an ordered set aggregate.
 #[derive(Copy, Clone, Default, Debug, PostgresType, Serialize, Deserialize)]
 pub struct DemoPercentileDisc;
 
@@ -130,6 +134,38 @@ impl Aggregate for DemoPercentileDisc {
 
         let target_index = (inner.len() as f64 * direct_arg).round() as usize;
         inner[target_index.saturating_sub(1)]
+    }
+}
+
+#[derive(Copy, Clone, Default, Debug, PostgresType, Serialize, Deserialize)]
+/// Demonstrates returning a tuple of values.
+pub struct DemoCountAndSum {
+    count: i32,
+    sum: i32,
+}
+
+#[pg_aggregate]
+impl Aggregate for DemoCountAndSum {
+    type Args = name!(input, i32);
+    type Finalize = (name!(count, i32), name!(sum, i32));
+    const INITIAL_CONDITION: Option<&'static str> = Some(r#"{ "count": 0, "sum": 0 }"#);
+
+    fn state(
+        mut current: Self::State,
+        arg: Self::Args,
+        _fcinfo: pg_sys::FunctionCallInfo,
+    ) -> Self::State {
+        current.count += 1;
+        current.sum += arg;
+        current
+    }
+
+    fn finalize(
+        current: Self::State,
+        _direct_arg: Self::OrderedSetArgs,
+        _fcinfo: pg_sys::FunctionCallInfo,
+    ) -> Self::Finalize {
+        (current.count, current.sum)
     }
 }
 
@@ -182,5 +218,13 @@ mod tests {
             "SELECT DemoPercentileDisc(0.05) WITHIN GROUP (ORDER BY income) FROM UNNEST(ARRAY [5, 100000000, 6000, 70000, 500]) as income;"
         ).expect("SQL select failed");
         assert_eq!(retval, 5);
+    }
+
+    
+    #[pg_test]
+    fn aggregate_demo_count_and_sum() {
+        let retval =
+            Spi::get_two::<i32, i32>("SELECT DemoCountAndSum(value) FROM UNNEST(ARRAY [1, 1, 2]) as value;");
+        assert_eq!(retval, (Some(3), Some(4)));
     }
 }

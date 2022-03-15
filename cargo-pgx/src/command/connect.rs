@@ -5,10 +5,12 @@ use crate::{
     command::{get::get_property, run::exec_psql, start::start_postgres},
     CommandExecute,
 };
+use cargo_toml::Manifest;
 use eyre::{eyre, WrapErr};
 use owo_colors::OwoColorize;
 use pgx_utils::createdb;
 use pgx_utils::pg_config::{PgConfig, Pgx};
+use std::path::PathBuf;
 
 /// Connect, via psql, to a Postgres instance
 #[derive(clap::Args, Debug)]
@@ -22,6 +24,12 @@ pub(crate) struct Connect {
     dbname: Option<String>,
     #[clap(from_global, parse(from_occurrences))]
     verbose: usize,
+    /// Package to determine default `pg_version` with (see `cargo help pkgid`)
+    #[clap(long, short)]
+    package: Option<String>,
+    /// Path to Cargo.toml
+    #[clap(long, parse(from_os_str))]
+    manifest_path: Option<PathBuf>,
 }
 
 impl CommandExecute for Connect {
@@ -39,32 +47,48 @@ impl CommandExecute for Connect {
                     // It's actually the dbname! We should infer from the manifest.
                     self.dbname = Some(pg_version);
 
-                    let metadata = crate::metadata::metadata(&Default::default())?;
+                    let metadata = crate::metadata::metadata(&Default::default(), self.manifest_path.as_ref())
+                        .wrap_err("couldn't get cargo metadata")?;
                     crate::metadata::validate(&metadata)?;
-                    let manifest = crate::manifest::manifest(&metadata)?;
+                    let manifest_path = crate::manifest::manifest_path(&metadata, self.package.as_ref())
+                        .wrap_err("couldn't get manifest path for package")?;
+                    let manifest = Manifest::from_path(&manifest_path)
+                        .wrap_err("couldn't parse manifest")?;
 
                     let default_pg_version = crate::manifest::default_pg_version(&manifest)
-                        .ok_or(eyre!("No provided `pg$VERSION` flag."))?;
+                        .ok_or(eyre!("no provided `pg$VERSION` flag."))?;
                     default_pg_version
                 }
             },
             None => {
                 // We should infer from the manifest.
-                let metadata = crate::metadata::metadata(&Default::default())?;
+                let metadata = crate::metadata::metadata(&Default::default(), self.manifest_path.as_ref())
+                    .wrap_err("couldn't get cargo metadata")?;
                 crate::metadata::validate(&metadata)?;
-                let manifest = crate::manifest::manifest(&metadata)?;
+                let manifest_path = crate::manifest::manifest_path(&metadata, self.package.as_ref())
+                    .wrap_err("couldn't get manifest path for package")?;
+                let manifest = Manifest::from_path(manifest_path)
+                    .wrap_err("couldn't parse manifest")?;
 
                 let default_pg_version = crate::manifest::default_pg_version(&manifest)
-                    .ok_or(eyre!("No provided `pg$VERSION` flag."))?;
+                    .ok_or(eyre!("no provided `pg$VERSION` flag."))?;
                 default_pg_version
             }
         };
 
         let dbname = match self.dbname {
             Some(dbname) => dbname,
-            None => get_property("extname")
-                .wrap_err("could not determine extension name")?
-                .ok_or(eyre!("extname not found in control file"))?,
+            None => {
+                let metadata = crate::metadata::metadata(&Default::default(), self.manifest_path.as_ref())
+                    .wrap_err("couldn't get cargo metadata")?;
+                crate::metadata::validate(&metadata)?;
+                let manifest_path = crate::manifest::manifest_path(&metadata, self.package.as_ref())
+                    .wrap_err("couldn't get manifest path for package")?;
+
+                get_property(&manifest_path, "extname")
+                    .wrap_err("could not determine extension name")?
+                    .ok_or(eyre!("extname not found in control file"))?
+            },
         };
 
         connect_psql(Pgx::from_config()?.get(&pg_version)?, &dbname)

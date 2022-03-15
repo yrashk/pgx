@@ -12,18 +12,31 @@
 , llvmPackages
 , gitignoreSource
 , runCommand
+, name
+, version
 , targetPostgres
 , release ? true
-, source ? ./.
+, root
+, package ? null
 , additionalFeatures
+, additionalNativeBuildInputs ? [ ]
+, additionalBuildInputs ? [ ]
+, additionalCheckInputs ? [ ]
 , doCheck ? true
 }:
 
 let
+  maybePackageString = if package != null then 
+    "-p ${package}"
+  else
+    "";
+  targets = if package != null then
+    [ package ]
+  else
+    null;
   maybeReleaseFlag = if release == true then "--release" else "";
   maybeDebugFlag = if release == true then "" else "--debug";
   pgxPostgresMajor = builtins.head (lib.splitString "." targetPostgres.version);
-  cargoToml = (builtins.fromTOML (builtins.readFile "${source}/Cargo.toml"));
   preBuildAndTest = ''
     export PGX_HOME=$(mktemp -d)
     mkdir -p $PGX_HOME/${pgxPostgresMajor}
@@ -60,41 +73,42 @@ let
   '';
 in
 
-naersk.lib."${targetPlatform.system}".buildPackage rec {
-  inherit release doCheck;
-  name = "${cargoToml.package.name}-pg${pgxPostgresMajor}";
-  version = cargoToml.package.version;
+naersk.lib."${targetPlatform.system}".buildPackage {
+  inherit release doCheck targets;
+  name = "${name}-pg${pgxPostgresMajor}";
+  version = version;
 
-  src = gitignoreSource source;
+  root = gitignoreSource root;
 
   inputsFrom = [ targetPostgres cargo-pgx ];
 
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+  nativeBuildInputs = additionalNativeBuildInputs;
   buildInputs = [
     rust-bin.stable.latest.default
     cargo-pgx
     pkg-config
     libiconv
     targetPostgres
-  ];
+  ] ++ additionalBuildInputs;
   checkInputs = [
     cargo-pgx
     rust-bin.stable.latest.default
-  ];
+  ] ++ additionalCheckInputs;
 
   postPatch = "patchShebangs .";
   preBuild = preBuildAndTest;
   preCheck = preBuildAndTest;
   postBuild = ''
-    if [ -f "${cargoToml.package.name}.control" ]; then
+    if [ -f "${name}.control" ]; then
       export NIX_PGLIBDIR=${targetPostgres.out}/share/postgresql/extension/
-      ${cargo-pgx}/bin/cargo-pgx pgx package --pg-config ${targetPostgres}/bin/pg_config ${maybeDebugFlag} --features "${builtins.toString additionalFeatures}" --out-dir $out
+      ${cargo-pgx}/bin/cargo-pgx pgx package ${maybePackageString} --pg-config ${targetPostgres}/bin/pg_config ${maybeDebugFlag} --features "${builtins.toString additionalFeatures}" --out-dir $out
       export NIX_PGLIBDIR=$PGX_HOME/${pgxPostgresMajor}/lib
     fi
   '';
   # Certain extremely slow machines (Github actions...) don't clean up their socket properly.
   preFixup = ''
-    if [ -f "${cargoToml.package.name}.control" ]; then
+    if [ -f "${name}.control" ]; then
       ${cargo-pgx}/bin/cargo-pgx pgx stop all
 
       mv -v $out/${targetPostgres.out}/* $out

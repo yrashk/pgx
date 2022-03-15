@@ -23,22 +23,27 @@
           (self: super: { inherit (self.rust-bin.stable.latest) rustc cargo rustdoc rust-std; })
         ] ++ extraOverlays;
       });
-      releaseAndDebug = attr: call: args: {
-        "${attr}" = call args;
-        "${attr}_debug" = call (args // { release = false; });
-      };
+      pgxExamples = builtins.attrNames (
+        nixpkgs.lib.filterAttrs (name: value: value == "directory") ((builtins.readDir ./pgx-examples))
+      );
     in
     {
       lib = {
         inherit supportedSystems forAllSystems nixpkgsWithOverlays;
         buildPgxExtension =
           { pkgs
-          , source
+          , name
+          , version
+          , root
+          , package ? null
           , targetPostgres
           , additionalFeatures ? [ ]
+          , additionalBuildInputs ? [ ]
+          , additionalNativeBuildInputs ? [ ]
+          , additionalCheckInputs ? [ ]
           , release ? true
           }: pkgs.callPackage ./nix/extension.nix {
-            inherit source targetPostgres release naersk additionalFeatures;
+            inherit root name version package targetPostgres release naersk additionalFeatures additionalNativeBuildInputs additionalBuildInputs additionalCheckInputs;
             inherit (gitignore.lib) gitignoreSource;
           };
       };
@@ -50,7 +55,41 @@
         in
         {
           inherit (pkgs) cargo-pgx;
-        });
+        } // (builtins.listToAttrs (
+          builtins.concatMap (pgxExample: 
+            builtins.concatMap (targetPostgres: let
+              postgresMajor = builtins.head (nixpkgs.lib.splitString "." targetPostgres.version);
+            in [
+                {
+                  name = "pgx_example_${pgxExample}_${postgresMajor}_debug";
+                  value = self.lib.buildPgxExtension {
+                    inherit pkgs targetPostgres;
+                    name = pgxExample;
+                    version = "0.0.1";
+                    root = ./.;
+                    package = pgxExample;
+                    release = false;
+                    additionalFeatures = [ ];
+                    additionalNativeBuildInputs = with pkgs; [ pkg-config ];
+                    additionalBuildInputs = with pkgs; [ openssl ];
+                  };
+                }
+                {
+                  name = "pgx_example_${pgxExample}_${postgresMajor}";
+                  value = self.lib.buildPgxExtension {
+                    inherit pkgs targetPostgres;
+                    name = pgxExample;
+                    version = "0.0.1";
+                    root = ./.;
+                    package = pgxExample;
+                    additionalFeatures = [ ];
+                    additionalNativeBuildINputs = with pkgs; [ pkg-config ];
+                    additionalBuildInputs = with pkgs; [ openssl ];
+                  };
+                }
+            ]) (with pkgs; [ postgresql_10 postgresql_11 postgresql_13 postgresql_14 ])
+          ) pgxExamples
+        )));
 
       overlay = final: prev: {
         cargo-pgx = final.callPackage ./cargo-pgx {

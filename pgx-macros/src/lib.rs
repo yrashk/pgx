@@ -641,11 +641,12 @@ fn impl_postgres_enum(ast: DeriveInput) -> proc_macro2::TokenStream {
     stream.extend(quote! {
         impl pgx::FromDatum for #enum_ident {
             #[inline]
-            unsafe fn from_datum(datum: pgx::pg_sys::Datum, is_null: bool, typeoid: pgx::pg_sys::Oid) -> Option<#enum_ident> {
+            unsafe fn from_datum(datum: pgx::pg_sys::Datum, is_null: bool) -> Option<#enum_ident> {
                 if is_null {
                     None
                 } else {
-                    let (name, _, _) = pgx::lookup_enum_by_oid(datum as pgx::pg_sys::Oid);
+                    // GREPME: non-primitive cast u64 as Oid
+                    let (name, _, _) = pgx::lookup_enum_by_oid(datum.value() as pgx::pg_sys::Oid);
                     match name.as_str() {
                         #from_datum
                         _ => panic!("invalid enum value: {}", name)

@@ -5,6 +5,7 @@ members = [
     "pgx",
     "pgx-macros",
     "pgx-pg-sys",
+    "pgx-sqlgen",
     "pgx-tests",
     "pgx-utils",
     "pgx-examples/aggregate",

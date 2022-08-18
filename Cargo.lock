@@ -294,6 +294,7 @@ dependencies = [
  "object",
  "once_cell",
  "owo-colors",
+ "pgx-sqlgen",
  "pgx-utils",
  "proc-macro2",
  "quote",
@@ -1460,6 +1461,7 @@ dependencies = [
  "once_cell",
  "owo-colors",
  "pgx-macros",
+ "pgx-sqlgen",
  "pgx-utils",
  "proc-macro2",
  "quote",
@@ -1467,6 +1469,23 @@ dependencies = [
  "rustversion",
  "sptr",
  "syn",
+]
+
+[[package]]
+name = "pgx-sqlgen"
+version = "0.5.0-beta.0"
+dependencies = [
+ "dirs",
+ "eyre",
+ "owo-colors",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "toml",
+ "tracing",
+ "tracing-error",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -1479,6 +1498,7 @@ dependencies = [
  "owo-colors",
  "pgx",
  "pgx-macros",
+ "pgx-sqlgen",
  "pgx-utils",
  "postgres",
  "regex",
@@ -1500,6 +1520,7 @@ dependencies = [
  "eyre",
  "owo-colors",
  "petgraph",
+ "pgx-sqlgen",
  "prettyplease",
  "proc-macro2",
  "quote",

@@ -72,13 +72,20 @@ impl PgGuardRewriter {
             }
         };
 
+        // Avoid triggering `clippy::redundant_closure` lint
+        let code = if sig.inputs.is_empty() {
+            quote! { #func_name }
+        } else {
+            quote! { || #func_name(#arg_list) }
+        };
+
         quote_spanned! {func.span()=>
             #prolog
             #[doc(hidden)]
             #vis #sig {
                 #[allow(non_snake_case)]
                 #func
-                pg_sys::guard::guard( || #func_name(#arg_list) )
+                pg_sys::guard::guard(#code)
             }
         }
     }

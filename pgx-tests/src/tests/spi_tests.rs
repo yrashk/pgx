@@ -216,4 +216,10 @@ mod tests {
         struct T;
         assert!(matches!(Spi::connect(|_| Ok(Some(T))).unwrap(), T));
     }
+
+    #[pg_test]
+    fn returning_client_is_safe() {
+        let client = Spi::connect(|client| Ok(Some(client))).unwrap();
+        assert_eq!(client.select("SELECT 1", None, None).len(), 1);
+    }
 }

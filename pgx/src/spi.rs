@@ -103,7 +103,13 @@ impl TryFrom<libc::c_int> for SpiError {
 
 pub struct Spi;
 
-pub struct SpiClient;
+pub struct SpiClient(());
+
+impl Drop for SpiClient {
+    fn drop(&mut self) {
+        Spi::check_status(unsafe { pg_sys::SPI_finish() });
+    }
+}
 
 #[derive(Debug)]
 pub struct SpiTupleTable {
@@ -244,33 +250,14 @@ impl Spi {
     pub fn connect<R, F: FnOnce(SpiClient) -> std::result::Result<Option<R>, SpiError>>(
         f: F,
     ) -> Option<R> {
-        /// a struct to manage our SPI connection lifetime
-        struct SpiConnection;
-        impl SpiConnection {
-            /// Connect to Postgres' SPI system
-            fn connect() -> Self {
-                // connect to SPI
-                Spi::check_status(unsafe { pg_sys::SPI_connect() });
-                SpiConnection
-            }
-        }
-
-        impl Drop for SpiConnection {
-            /// when SpiConnection is dropped, we make sure to disconnect from SPI
-            fn drop(&mut self) {
-                // disconnect from SPI
-                Spi::check_status(unsafe { pg_sys::SPI_finish() });
-            }
-        }
-
         // connect to SPI
-        let _connection = SpiConnection::connect();
+        Spi::check_status(unsafe { pg_sys::SPI_connect() });
 
         // run the provided closure within the memory context that SPI_connect()
-        // just put us un.  We'll disconnect from SPI when the closure is finished.
+        // just put us un.  We'll disconnect from SPI when the client is dropped.
         // If there's a panic or elog(ERROR), we don't care about also disconnecting from
         // SPI b/c Postgres will do that for us automatically
-        f(SpiClient).unwrap()
+        f(SpiClient(())).unwrap()
     }
 
     pub fn check_status(status_code: i32) -> SpiOk {
